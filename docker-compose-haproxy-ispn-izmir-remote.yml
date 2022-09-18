@@ -1,0 +1,113 @@
+services:
+
+  acme-ispn-3:
+    build: ./ispn
+    volumes:
+      # relative paths needs to be relative to the docker-compose cwd.
+      - ./ispn/conf/infinispan-keycloak.xml:/opt/infinispan/server/conf/infinispan-keycloak.xml:z
+      - ./ispn/conf/users.properties:/opt/infinispan/server/conf/users.properties:z
+      - ./ispn/ispn-server.jks:/opt/infinispan/server/conf/ispn-server.jks:z
+      - ./ispn/data/ispn-3:/opt/infinispan/server/mydata:z
+    healthcheck:
+      test: ["CMD-SHELL", "curl -k https://$$(ip route get 1.2.3.4 | awk '{print $$7}'):11222"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      acme-keycloak-db-izmir:
+        condition: service_healthy
+    networks:
+      app_izmir_net:
+
+  acme-ispn-4:
+    build: ./ispn
+    volumes:
+      # relative paths needs to be relative to the docker-compose cwd.
+      - ./ispn/conf/infinispan-keycloak.xml:/opt/infinispan/server/conf/infinispan-keycloak.xml:z
+      - ./ispn/conf/users.properties:/opt/infinispan/server/conf/users.properties:z
+      - ./ispn/ispn-server.jks:/opt/infinispan/server/conf/ispn-server.jks:z
+      - ./ispn/data/ispn-4:/opt/infinispan/server/mydata:z
+    healthcheck:
+      test: ["CMD-SHELL", "curl -k https://$$(ip route get 1.2.3.4 | awk '{print $$7}'):11222"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      acme-keycloak-db-izmir:
+        condition: service_healthy
+    networks:
+      app_izmir_net:
+
+  acme-keycloak-3:
+    extends:
+      file: ./keycloak_izmir/docker-compose.yml
+      service: acme-keycloak
+    env_file:
+      - ./haproxy-external-izmir-ispn.env
+    volumes:
+      - ./cli/0100-onstart-setup-remote-caches.cli:/opt/jboss/startup-scripts/0100-onstart-setup-remote-caches.cli:z
+      - ./ispn/ispn-truststore.jks:/opt/jboss/keycloak/standalone/configuration/ispn-truststore.jks:z
+      - ./patch/wildfly-clustering-infinispan-extension-patch-26.0.1.jar:/opt/jboss/keycloak/modules/system/layers/base/org/jboss/as/clustering/infinispan/main/wildfly-clustering-infinispan-extension-26.0.1.Final.jar:z
+      - ./ispn/cacerts:/etc/pki/ca-trust/extracted/java/cacerts:z
+    command: [ "--debug", "*:8787", "-Dwildfly.statistics-enabled=true", "-Djboss.site.name=site1" ]
+    depends_on:
+      acme-ispn-3:
+        condition: service_healthy
+    ports:
+      - "8080"
+      - "8443"
+      - "9990:9990"
+      - "8787:8787"
+    networks:
+      app_izmir_net:
+
+  acme-keycloak-4:
+    extends:
+      file: ./keycloak_izmir/docker-compose.yml
+      service: acme-keycloak
+    env_file:
+      - ./haproxy-external-izmir-ispn.env
+    volumes:
+      - ./cli/0100-onstart-setup-remote-caches.cli:/opt/jboss/startup-scripts/0100-onstart-setup-remote-caches.cli:z
+      - ./ispn/ispn-truststore.jks:/opt/jboss/keycloak/standalone/configuration/ispn-truststore.jks:z
+      - ./patch/wildfly-clustering-infinispan-extension-patch-26.0.1.jar:/opt/jboss/keycloak/modules/system/layers/base/org/jboss/as/clustering/infinispan/main/wildfly-clustering-infinispan-extension-26.0.1.Final.jar:z
+      - ./ispn/cacerts:/etc/pki/ca-trust/extracted/java/cacerts:z
+    command: [ "-Dwildfly.statistics-enabled=true", "-Djboss.site.name=site1" ]
+    depends_on:
+      acme-keycloak-db-izmir:
+        condition: service_healthy
+      acme-ispn-3:
+        condition: service_healthy
+    networks:
+      app_izmir_net:
+
+  acme-keycloak-db-izmir:
+    extends:
+      file: ./keycloak_izmir/docker-compose.yml
+      service: acme-keycloak-db
+    networks:
+      app_izmir_net:
+
+  acme-haproxy-lb-izmir:
+    build: ./haproxy_izmir
+    volumes:
+      # relative paths needs to be relative to the docker-compose cwd.
+      - ./haproxy_izmir/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:z
+    sysctls:
+      - net.ipv4.ip_unprivileged_port_start=0
+    ports:
+      - "1444:1444"
+    depends_on:
+      - acme-keycloak-3
+      - acme-keycloak-4
+    networks:
+      app_izmir_net:
+
+networks:
+  app_izmir_net:
+    external: true
+    # ipam:
+    #   driver: default
+    #   config:
+    #     - subnet: "172.21.239.0/24"
+    #       gateway: "172.21.239.1"
